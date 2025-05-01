@@ -6,13 +6,16 @@ import re
 
 app = Flask(__name__)
 
+# Set your OpenAI API key as an environment variable in Render or Replit
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def extract_video_id(url):
+    """Extracts the video ID from a YouTube URL."""
     match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
     return match.group(1) if match else None
 
 def fetch_transcript(video_id):
+    """Fetches transcript for the given YouTube video ID."""
     try:
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
         full_text = " ".join([item["text"] for item in transcript_list])
@@ -23,10 +26,11 @@ def fetch_transcript(video_id):
         return f"Error: {str(e)}"
 
 def summarize_text(text, style="brief"):
+    """Uses OpenAI to summarize text with different tones."""
     try:
         prompt = (
             "Summarize the following YouTube transcript in a "
-            f"{'professional tone' if style == 'brief' else 'creative script-like'} format:\n\n{text}"
+            f"{'professional tone' if style == 'brief' else 'creative, script-style'} format:\n\n{text}"
         )
         response = openai.ChatCompletion.create(
             model="gpt-4",
@@ -46,27 +50,33 @@ def webhook():
     try:
         data = request.get_json()
         if not data:
-            return jsonify({"error": "No JSON received"}), 400
+            return jsonify({"error": "No JSON data received"}), 400
 
-        summaries = {}
+        rich_note = {}
+        video_script = {}
+
         for key, url in data.items():
             print(f"Processing {key}: {url}")
             video_id = extract_video_id(url)
             if not video_id:
-                summaries[key] = "Error: Could not extract video ID"
+                error_message = "Error: Could not extract video ID"
+                rich_note[key] = error_message
+                video_script[key] = error_message
                 continue
 
             transcript = fetch_transcript(video_id)
-            summary = summarize_text(transcript)
-            summaries[key] = summary
+            rich_note[key] = summarize_text(transcript, style="brief")
+            video_script[key] = summarize_text(transcript, style="script")
 
-        return jsonify({
+        response = {
             "status": "success",
-            "rich_note": str(summaries),
-            "video_script": str(summaries)
-        }), 200
+            "rich_note": str(rich_note),
+            "video_script": str(video_script)
+        }
+        return jsonify(response), 200
 
     except Exception as e:
+        print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
