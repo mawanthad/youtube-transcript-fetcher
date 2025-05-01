@@ -1,86 +1,79 @@
-import os
-import openai
 from flask import Flask, request, jsonify
-from youtube_transcript_api import YouTubeTranscriptApi
-from urllib.parse import urlparse, parse_qs
+from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+from openai import OpenAI
+import logging
+import os
+import re
+import sys
 
+# Setup logging for Render
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
+
+# Init Flask app
 app = Flask(__name__)
 
-# Set your OpenAI API key via environment variable for security
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# Load OpenAI key
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise ValueError("Missing OpenAI API key in environment variables")
+
+openai = OpenAI(api_key=OPENAI_API_KEY)
 
 @app.route("/")
 def index():
     return "✅ Server is running."
 
 def extract_video_id(url):
-    """
-    Extracts the video ID from a YouTube URL.
-    """
-    parsed_url = urlparse(url)
-    query = parse_qs(parsed_url.query)
-    return query.get("v", [None])[0]
+    """Extract video ID from a YouTube URL."""
+    match = re.search(r"(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})", url)
+    return match.group(1) if match else None
 
-def get_transcript(video_url):
-    """
-    Fetches the transcript text from a YouTube video.
-    """
-    video_id = extract_video_id(video_url)
-    if not video_id:
-        return None
-
+def fetch_transcript(video_id):
     try:
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
-        full_text = " ".join([entry["text"] for entry in transcript])
+        full_text = " ".join([item['text'] for item in transcript])
         return full_text
+    except (TranscriptsDisabled, NoTranscriptFound) as e:
+        return f"[Transcript unavailable: {str(e)}]"
     except Exception as e:
-        print(f"Transcript error for {video_url}: {e}")
-        return None
+        return f"[Error fetching transcript: {str(e)}]"
 
 def summarize_text(text):
-    """
-    Summarizes text using OpenAI.
-    """
     try:
-        prompt = (
-            "Summarize the following YouTube transcript into key points:\n\n" + text[:3000]
+        prompt = f"Summarize the following YouTube video transcript:\n\n{text[:3000]}"  # truncate to stay within token limits
+        response = openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300
         )
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=400
-        )
-        summary = response.choices[0].message["content"]
-        return summary
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        print(f"OpenAI summarization error: {e}")
-        return "Summarization failed."
+        return f"[OpenAI error: {str(e)}]"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"error": "No JSON data received"}), 400
+        if not request.is_json:
+            return jsonify({"error": "Invalid content-type, must be JSON"}), 400
 
+        data = request.get_json(force=True)
         summaries = {}
 
         for key, url in data.items():
-            print(f"Processing {key}: {url}")
-            transcript = get_transcript(url)
-            if transcript:
-                summary = summarize_text(transcript)
-            else:
-                summary = "Transcript not available."
+            logging.info(f"Processing {key}: {url}")
+            video_id = extract_video_id(url)
+            if not video_id:
+                summaries[key] = "[Invalid YouTube URL]"
+                continue
+
+            transcript = fetch_transcript(video_id)
+            summary = summarize_text(transcript)
             summaries[key] = summary
 
         return jsonify({"status": "success", "summaries": summaries}), 200
 
     except Exception as e:
-        print(f"Webhook error: {e}")
+        logging.exception("Webhook processing failed")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
