@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: youtube-transcript-fetcher
+    env: python
+    plan: free
+    buildCommand: ""
+    startCommand: "python main.py"
+    envVars: []
