@@ -1,4 +1,4 @@
-Flask
-openai
-youtube-transcript-api
+openai>=1.0.0
+flask
 gunicorn
+youtube-transcript-api
