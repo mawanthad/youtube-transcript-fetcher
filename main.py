@@ -6,7 +6,7 @@ import re
 
 app = Flask(__name__)
 
-# API Key
+# Set your OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def extract_video_id(url):
@@ -15,9 +15,8 @@ def extract_video_id(url):
 
 def fetch_transcript(video_id):
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
-        full_text = " ".join([item["text"] for item in transcript])
-        return full_text
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+        return " ".join([item["text"] for item in transcript_list])
     except (TranscriptsDisabled, NoTranscriptFound):
         return "Transcript not available."
     except Exception as e:
@@ -32,7 +31,7 @@ def summarize_text(text, style="brief"):
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.5
+            temperature=0.5,
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -47,21 +46,32 @@ def webhook():
     try:
         data = request.get_json(force=True)
         if not data:
-            return jsonify({"error": "No data received"}), 400
+            return jsonify({"error": "No JSON received"}), 400
 
         summaries = {}
+        rich_note = "📘 Rich Content Note:\n"
+        video_script = "🎬 Video Script:\n"
+
         for key, url in data.items():
-            print(f"Processing {key}: {url}")
             video_id = extract_video_id(url)
+            print(f"Processing {key}: {url} → Video ID: {video_id}")
+
             if not video_id:
-                summaries[key] = "Error: Could not extract video ID"
-                continue
+                summary = "Error: Could not extract video ID"
+            else:
+                transcript = fetch_transcript(video_id)
+                summary = summarize_text(transcript, style="brief")
 
-            transcript = fetch_transcript(video_id)
-            summary = summarize_text(transcript, style="brief")
             summaries[key] = summary
+            rich_note += f"- {key}: {summary}\n"
+            video_script += f"- {key}: {summary}\n"
 
-        return jsonify({"status": "success", "summaries": summaries}), 200
+        # Send structured and readable output
+        return jsonify({
+            "status": "success",
+            "summaries": summaries,
+            "formatted": f"{rich_note}\n\n{video_script}"
+        }), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
