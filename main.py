@@ -1,40 +1,32 @@
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
-from openai import OpenAI  # For openai>=1.0.0
+from openai import OpenAI
 import os
 import re
 
 app = Flask(__name__)
-
-# Instantiate OpenAI client using your environment variable
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 def extract_video_id(url):
-    """Extracts YouTube video ID from various URL formats."""
-    match = re.search(r"(?:v=|youtu\.be/|embed/)([0-9A-Za-z_-]{11})", url)
+    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
     return match.group(1) if match else None
 
 def fetch_transcript(video_id):
-    """Fetches transcript for a YouTube video."""
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-        return " ".join([item["text"] for item in transcript_list])
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        return " ".join([item["text"] for item in transcript])
     except (TranscriptsDisabled, NoTranscriptFound):
         return "Transcript not available."
     except Exception as e:
         return f"Error: {str(e)}"
 
 def summarize_text(text, tone="brief"):
-    """Summarizes text using OpenAI."""
     try:
-        prompt = (
-            f"Summarize this YouTube transcript in a "
-            f"{'professional brief tone' if tone == 'brief' else 'creative script style'}:\n\n{text}"
-        )
+        prompt = f"Summarize this YouTube transcript in a {'professional brief tone' if tone == 'brief' else 'creative script style'}:\n\n{text}"
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",  # or "gpt-4" if supported
+            model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.5,
+            temperature=0.5
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
