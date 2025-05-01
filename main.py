@@ -6,7 +6,7 @@ import re
 
 app = Flask(__name__)
 
-# Ensure your OpenAI key is set in Render as an environment variable
+# Set OpenAI API key from environment variable
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def extract_video_id(url):
@@ -25,14 +25,15 @@ def fetch_transcript(video_id):
         return f"Error: {str(e)}"
 
 def summarize_text(text, tone="brief"):
-    """Summarizes transcript using OpenAI."""
+    """Summarizes transcript using OpenAI (>=1.0.0 syntax)."""
     try:
+        client = openai.OpenAI()  # new client-based interface
         prompt = (
             f"Summarize this YouTube transcript in a "
             f"{'professional brief tone' if tone == 'brief' else 'creative script style'}:\n\n{text}"
         )
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # or "gpt-4" if your account supports it
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",  # or "gpt-4" if available
             messages=[{"role": "user", "content": prompt}],
             temperature=0.5,
         )
