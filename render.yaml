@@ -2,7 +2,5 @@ services:
   - type: web
     name: youtube-transcript-fetcher
     env: python
-    plan: free
-    buildCommand: ""
-    startCommand: "python main.py"
-    envVars: []
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app
