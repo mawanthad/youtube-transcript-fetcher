@@ -6,7 +6,6 @@ import re
 
 app = Flask(__name__)
 
-# Set your OpenAI API key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def extract_video_id(url):
@@ -16,7 +15,8 @@ def extract_video_id(url):
 def fetch_transcript(video_id):
     try:
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-        return " ".join([item["text"] for item in transcript_list])
+        full_text = " ".join([item["text"] for item in transcript_list])
+        return full_text
     except (TranscriptsDisabled, NoTranscriptFound):
         return "Transcript not available."
     except Exception as e:
@@ -44,33 +44,26 @@ def index():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        data = request.get_json(force=True)
+        data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON received"}), 400
 
         summaries = {}
-        rich_note = "📘 Rich Content Note:\n"
-        video_script = "🎬 Video Script:\n"
-
         for key, url in data.items():
+            print(f"Processing {key}: {url}")
             video_id = extract_video_id(url)
-            print(f"Processing {key}: {url} → Video ID: {video_id}")
-
             if not video_id:
-                summary = "Error: Could not extract video ID"
-            else:
-                transcript = fetch_transcript(video_id)
-                summary = summarize_text(transcript, style="brief")
+                summaries[key] = "Error: Could not extract video ID"
+                continue
 
+            transcript = fetch_transcript(video_id)
+            summary = summarize_text(transcript)
             summaries[key] = summary
-            rich_note += f"- {key}: {summary}\n"
-            video_script += f"- {key}: {summary}\n"
 
-        # Send structured and readable output
         return jsonify({
             "status": "success",
-            "summaries": summaries,
-            "formatted": f"{rich_note}\n\n{video_script}"
+            "rich_note": str(summaries),
+            "video_script": str(summaries)
         }), 200
 
     except Exception as e:
