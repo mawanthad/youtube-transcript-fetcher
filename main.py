@@ -1,17 +1,21 @@
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+import openai
 import os
 import re
 
 app = Flask(__name__)
 
+# Ensure your OpenAI key is set in Render as an environment variable
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
 def extract_video_id(url):
-    """Extracts YouTube video ID from a URL."""
+    """Extracts YouTube video ID from URL."""
     match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
     return match.group(1) if match else None
 
 def fetch_transcript(video_id):
-    """Fetches transcript from YouTube if available."""
+    """Gets transcript for a YouTube video ID."""
     try:
         transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
         return " ".join([item["text"] for item in transcript_list])
@@ -20,9 +24,21 @@ def fetch_transcript(video_id):
     except Exception as e:
         return f"Error: {str(e)}"
 
-def create_summary(transcript):
-    """Creates a basic summary (placeholder for now)."""
-    return transcript[:500] + "..." if len(transcript) > 500 else transcript
+def summarize_text(text, tone="brief"):
+    """Summarizes transcript using OpenAI."""
+    try:
+        prompt = (
+            f"Summarize this YouTube transcript in a "
+            f"{'professional brief tone' if tone == 'brief' else 'creative script style'}:\n\n{text}"
+        )
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",  # or "gpt-4" if your account supports it
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 @app.route("/")
 def index():
@@ -36,7 +52,6 @@ def webhook():
             return jsonify({"error": "No valid JSON received"}), 400
 
         summaries = {}
-
         for key, url in data.items():
             print(f"Processing {key}: {url}")
             video_id = extract_video_id(url)
@@ -45,15 +60,15 @@ def webhook():
                 continue
 
             transcript = fetch_transcript(video_id)
-            summary = create_summary(transcript)
+            summary = summarize_text(transcript, tone="brief")
             summaries[key] = summary
 
         rich_note = "📘 Rich Content Note:\n\n"
         script = "🎬 Video Script:\n\n"
 
-        for key, summary in summaries.items():
-            rich_note += f"🔹 {key}: {summary}\n\n"
-            script += f"🎞️ {key}: {summary}\n\n"
+        for key, content in summaries.items():
+            rich_note += f"🔹 {key}: {content}\n\n"
+            script += f"🎞️ {key}: {content}\n\n"
 
         return jsonify({
             "rich_note": rich_note.strip(),
@@ -61,7 +76,7 @@ def webhook():
         }), 200
 
     except Exception as e:
-        print("Error:", e)
+        print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
