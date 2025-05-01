@@ -2,6 +2,8 @@ services:
   - type: web
     name: youtube-transcript-fetcher
     env: python
-    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn main:app
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
