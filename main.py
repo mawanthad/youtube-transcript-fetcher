@@ -6,19 +6,17 @@ import re
 
 app = Flask(__name__)
 
-# Set your OpenAI API key as an environment variable in Render or Replit
+# API Key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def extract_video_id(url):
-    """Extracts the video ID from a YouTube URL."""
     match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
     return match.group(1) if match else None
 
 def fetch_transcript(video_id):
-    """Fetches transcript for the given YouTube video ID."""
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-        full_text = " ".join([item["text"] for item in transcript_list])
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        full_text = " ".join([item["text"] for item in transcript])
         return full_text
     except (TranscriptsDisabled, NoTranscriptFound):
         return "Transcript not available."
@@ -26,7 +24,6 @@ def fetch_transcript(video_id):
         return f"Error: {str(e)}"
 
 def summarize_text(text, style="brief"):
-    """Uses OpenAI to summarize text."""
     try:
         prompt = (
             "Summarize the following YouTube transcript in a "
@@ -35,7 +32,7 @@ def summarize_text(text, style="brief"):
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.5,
+            temperature=0.5
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
@@ -48,9 +45,9 @@ def index():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        data = request.get_json()
+        data = request.get_json(force=True)
         if not data:
-            return jsonify({"error": "No JSON data received"}), 400
+            return jsonify({"error": "No data received"}), 400
 
         summaries = {}
         for key, url in data.items():
@@ -64,14 +61,9 @@ def webhook():
             summary = summarize_text(transcript, style="brief")
             summaries[key] = summary
 
-        response = {
-            "status": "success",
-            "summaries": summaries
-        }
-        return jsonify(response), 200
+        return jsonify({"status": "success", "summaries": summaries}), 200
 
     except Exception as e:
-        print(f"Error: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
