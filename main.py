@@ -1,91 +1,80 @@
 from flask import Flask, request, jsonify
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
-from openai import OpenAI
-import os
-import re
+from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api._errors import (
+    TranscriptsDisabled,
+    VideoUnavailable,
+    NoTranscriptFound,
+    TooManyRequests,
+)
 
 app = Flask(__name__)
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Extract video ID from YouTube URL
 def extract_video_id(url):
-    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})", url)
-    return match.group(1) if match else None
+    try:
+        if "v=" in url:
+            return url.split("v=")[1].split("&")[0]
+        elif "youtu.be/" in url:
+            return url.split("youtu.be/")[1].split("?")[0]
+    except Exception:
+        return None
 
-# Get transcript from YouTube
-def fetch_transcript(video_id):
+def fetch_transcript(video_url):
+    video_id = extract_video_id(video_url)
+    if not video_id:
+        return None, f"Invalid YouTube URL: {video_url}"
+
     try:
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
-        return " ".join([item["text"] for item in transcript])
-    except (TranscriptsDisabled, NoTranscriptFound):
-        return "Transcript not available."
+        return " ".join([entry["text"] for entry in transcript]), None
+    except (TranscriptsDisabled, VideoUnavailable, NoTranscriptFound, TooManyRequests) as e:
+        return None, f"{video_url} - {str(e)}"
     except Exception as e:
-        return f"Error: {str(e)}"
+        return None, f"{video_url} - Unexpected error: {str(e)}"
 
-# Use OpenAI to summarize
-def summarize_text(text, tone="brief"):
-    try:
-        prompt = f"Summarize the following merged YouTube transcript in a {'professional and informative tone' if tone == 'brief' else 'creative and engaging video script style'}:\n\n{text}"
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Error: {str(e)}"
+def summarize_transcripts(transcripts):
+    # Dummy summarizer: join them and truncate
+    combined = " ".join(transcripts)
+    return (
+        f"🧠 Rich Note:\n\nThis note combines insights from the videos:\n\n"
+        + combined[:1000]
+        + "..."
+    )
 
-# Homepage check
-@app.route("/")
-def index():
-    return "✅ YouTube Transcript Summarizer API is live."
+def generate_youtube_script(transcripts):
+    combined = " ".join(transcripts)
+    return (
+        f"🎬 Video Script:\n\nWelcome back to the channel! Today we explore:\n\n"
+        + combined[:1200]
+        + "...\n\nIf you found this interesting, like and subscribe!"
+    )
 
-# Main webhook handler
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    try:
-        data = request.get_json()
-        if not data or not isinstance(data, dict):
-            return jsonify({"error": "No valid JSON received"}), 400
+    data = request.get_json()
+    video_urls = [data.get(f"video{i}") for i in range(1, 6) if data.get(f"video{i}")]
 
-        full_transcript = ""
-        failed_videos = []
+    transcripts = []
+    errors = []
 
-        for key, url in data.items():
-            print(f"Processing {key}: {url}")
-            video_id = extract_video_id(url)
-            if not video_id:
-                failed_videos.append(f"{key}: Invalid URL")
-                continue
+    for url in video_urls:
+        transcript, err = fetch_transcript(url)
+        if transcript:
+            transcripts.append(transcript)
+        else:
+            errors.append(err)
 
-            transcript = fetch_transcript(video_id)
-            if "Error" in transcript or "Transcript not available" in transcript:
-                failed_videos.append(f"{key}: {transcript}")
-                continue
-
-            full_transcript += transcript + " "
-
-        if not full_transcript.strip():
-            return jsonify({
-                "rich_note": "❌ No usable transcripts found.",
-                "video_script": "❌ Cannot generate script.",
-                "failures": failed_videos
-            }), 200
-
-        # Generate unified content
-        rich_note = summarize_text(full_transcript, tone="brief")
-        script = summarize_text(full_transcript, tone="creative")
-
+    if not transcripts:
         return jsonify({
-            "rich_note": "📘 Rich Content Note:\n\n" + rich_note.strip(),
-            "video_script": "🎬 Video Script:\n\n" + script.strip(),
-            "failures": failed_videos
-        }), 200
+            "rich_note": "❌ No transcripts could be retrieved.",
+            "video_script": "❌ Cannot generate script without transcripts.",
+            "errors": errors
+        }), 400
 
-    except Exception as e:
-        print(f"Server Error: {e}")
-        return jsonify({"error": str(e)}), 500
+    rich_note = summarize_transcripts(transcripts)
+    video_script = generate_youtube_script(transcripts)
 
-# Run the server
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8080)
+    return jsonify({
+        "rich_note": rich_note,
+        "video_script": video_script,
+        "errors": errors
+    })
