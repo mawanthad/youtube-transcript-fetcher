@@ -4,7 +4,6 @@ from youtube_transcript_api._errors import (
     TranscriptsDisabled,
     VideoUnavailable,
     NoTranscriptFound,
-    TooManyRequests,
 )
 
 app = Flask(__name__)
@@ -21,31 +20,31 @@ def extract_video_id(url):
 def fetch_transcript(video_url):
     video_id = extract_video_id(video_url)
     if not video_id:
-        return None, f"Invalid YouTube URL: {video_url}"
+        return None, f"❌ Invalid YouTube URL: {video_url}"
 
     try:
         transcript = YouTubeTranscriptApi.get_transcript(video_id)
         return " ".join([entry["text"] for entry in transcript]), None
-    except (TranscriptsDisabled, VideoUnavailable, NoTranscriptFound, TooManyRequests) as e:
+    except (TranscriptsDisabled, VideoUnavailable, NoTranscriptFound) as e:
         return None, f"{video_url} - {str(e)}"
     except Exception as e:
         return None, f"{video_url} - Unexpected error: {str(e)}"
 
 def summarize_transcripts(transcripts):
-    # Dummy summarizer: join them and truncate
     combined = " ".join(transcripts)
     return (
-        f"🧠 Rich Note:\n\nThis note combines insights from the videos:\n\n"
-        + combined[:1000]
-        + "..."
+        "📘 Rich Note:\n\n"
+        "This combined note includes key insights from all submitted YouTube videos:\n\n"
+        + combined[:1500] + "..."
     )
 
 def generate_youtube_script(transcripts):
     combined = " ".join(transcripts)
     return (
-        f"🎬 Video Script:\n\nWelcome back to the channel! Today we explore:\n\n"
-        + combined[:1200]
-        + "...\n\nIf you found this interesting, like and subscribe!"
+        "🎬 Video Script:\n\n"
+        "Welcome to the channel! Today’s video is packed with insights drawn from multiple sources.\n\n"
+        + combined[:1800] +
+        "\n\nIf you found this helpful, don’t forget to like and subscribe!"
     )
 
 @app.route("/webhook", methods=["POST"])
@@ -78,3 +77,6 @@ def webhook():
         "video_script": video_script,
         "errors": errors
     })
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
